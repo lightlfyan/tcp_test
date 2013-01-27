@@ -1,0 +1,12 @@
+{application, tcp_test,
+ [
+  {description, "simple tcp_test"},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { tcp_test_app, []}},
+  {env, []}
+ ]}.
