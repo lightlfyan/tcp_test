@@ -18,7 +18,7 @@
 % tcp_test_srv:bot(100).
 
 % tcp_test_srv:server().
-% tcp_test-srv:().
+% tcp_test-srv:c1().
 
 
 start_link() ->
