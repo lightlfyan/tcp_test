@@ -29,11 +29,14 @@ bot(Num) ->
 
 start() ->
     Opts = [binary, 
-            {packet, 1},
+            {packet, 0},
             {reuseaddr, true},
             {backlog, 1024},
-            {buffer,20},    % byte
-            {active, false}],
+            {sndbuf, 20},
+            {recbuf, 20},
+            % {buffer,20},    % byte
+            {active, false},
+            {delay_send, true}],
     % timer:apply_after(1000, ?MODULE, client, []),
     case gen_tcp:listen(8081, Opts) of
         {ok, LSock} ->
@@ -107,6 +110,7 @@ worker2(LSock) ->
         fun() ->
             case gen_tcp:accept(LSock) of
                 {ok, CSock} ->
+                    error_logger:info_msg("~p ~n", [inet:peername(CSock)]),
                     gen_tcp:controlling_process(CSock, WorkerPid),
                     WorkerPid ! {WorkerPid, CSock};
                 {error, Reason} ->
@@ -127,7 +131,34 @@ goto_handle(CSock) ->
     % atom can't gc
     Name = list_to_atom("handler_" ++ pid_to_list(self())),
     register(Name, self()),
-    handle(CSock).
+    echo(CSock).
+%handle3(CSock).
+
+
+echo(CSock) ->
+    error_logger:info_msg("echo ------------"),
+    case gen_tcp:recv(CSock, 0) of
+        {ok, Bin} -> 
+            error_logger:info_msg("recv: ~p ~n", [Bin]),
+            gen_tcp:send(CSock, Bin), echo(CSock);
+        Other ->
+            error_logger:info_msg("echo error: ~p ~n", [Other])
+    end.
+
+handle3(CSock) ->
+    gen_tcp:send(CSock, <<"pong">>),
+    gen_tcp:send(CSock, <<"0pong">>),
+    case gen_tcp:recv(CSock, 0) of
+        {ok, Bin} ->
+            gen_tcp:send(CSock, <<"pong">>),
+            error_logger:info_msg("~p ~n", [Bin]),
+            handle3(CSock);
+        {error, closed} ->
+            error_logger:info_msg("error: closed ~n");
+        Other ->
+            error_logger:info_msg("error: ~p ~n", [Other]),
+            handle3(CSock)
+    end.
 
 handle(CSock) ->
     handle(CSock, 0, []).
@@ -151,7 +182,7 @@ handle(CSock, 0, <<NLen:16, Bin/binary>>) ->
             handle(CSock, RestLen, Bin)
     end;
 handle(CSock, SLen, Data) ->
-    error_logger:info_msg("~p handle recving"),
+    % error_logger:info_msg("~p handle recving"),
     inet:setopts(CSock, [{active, once}]),
     receive
         {tcp, CSock, Bin} when SLen > 0 ->
@@ -175,7 +206,8 @@ handle(CSock, SLen, Data) ->
                     handle(CSock, RestLen, list_to_binary([Data, Bin]))
             end;
         {tcp, CSock, Bin} ->
-            error_logger:info_msg("receive bin: ~p~n", [Bin]),
+            error_logger:info_msg("receive bin: ~p~n bin len: ~p~n", [Bin, bit_size(Bin)]),
+            %handle(CSock);
             inet:setopts(CSock, [{active, once}]),
             handle(CSock, 0, Bin);
             % ok;
@@ -186,22 +218,36 @@ handle(CSock, SLen, Data) ->
             handle(CSock)
     end.
 
+handle2(CSock) ->
+    inet:setopts(CSock, [{active, once}]),
+    receive
+        {tcp, CSock, Bin} ->
+            error_logger:info_msg("receive: ~p ~n", [binary_to_term(Bin)]);
+        {tcp_closed, CSock} ->
+            error_logger:info_msg("tcp_closed ~n");
+        {tcp_error, CSock, Reason} ->
+            error_logger:info_msg("tcp_error: ~p ~n", [Reason])
+    end.
+
 
 client() ->
     Opts = [
         binary,
         {packet, 0},
-        {delay_send, true}
+        {active, false},
+        {delay_send, true},
+        {high_watermark, 128 * 1024},
+        {low_watermark, 64 * 1024}
         ],
     {ok, Sock} = gen_tcp:connect("localhost", 8081, Opts),
     c_loop(Sock, 0).
     % inet:setopts(Sock, [{delay_send, true}]),
 
 c_loop(Sock, Counter) when Counter < 100 ->
-    Msg = << <<I>> || I <- lists:seq(1, 100) >>,
+    Msg = << <<I>> || I <- lists:seq(1, 1000000) >>,
     Len = bit_size(Msg),
     error_logger:info_msg("len ~p", [Len]),
-    ok = gen_tcp:send(Sock, <<Len:16>>),
+    % ok = gen_tcp:send(Sock, <<Len:16>>),
     ok = gen_tcp:send(Sock, Msg),
     receive
     after 3000 ->
